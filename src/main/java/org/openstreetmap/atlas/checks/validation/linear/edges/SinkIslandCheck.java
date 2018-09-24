@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import org.openstreetmap.atlas.checks.atlas.predicates.TagPredicates;
 import org.openstreetmap.atlas.checks.base.BaseCheck;
@@ -32,6 +31,7 @@ import org.openstreetmap.atlas.utilities.configuration.Configuration;
  * @author cuthbertm
  * @author gpogulsky
  * @author savannahostrowski
+ * @author nachtm
  */
 public class SinkIslandCheck extends BaseCheck<Long>
 {
@@ -77,9 +77,11 @@ public class SinkIslandCheck extends BaseCheck<Long>
         return this.validEdge(object)
                 // We haven't flagged it before
                 && !this.isFlagged(object.getIdentifier())
-                // Only look at edges with a highway tag at least as significant as MINIMUM_IMPORTANCE_HIGHWAY
+                // Only look at edges with a highway tag at least as significant as
+                // MINIMUM_IMPORTANCE_HIGHWAY
                 // TODO nicer way to do this one
-                && HighwayTag.highwayTag(object).orElse(UNIMPORTANT_HIGHWAY).isMoreImportantThanOrEqualTo(MINIMUM_IMPORTANCE_HIGHWAY);
+                && HighwayTag.highwayTag(object).orElse(UNIMPORTANT_HIGHWAY)
+                        .isMoreImportantThanOrEqualTo(MINIMUM_IMPORTANCE_HIGHWAY);
     }
 
     @Override
@@ -174,7 +176,8 @@ public class SinkIslandCheck extends BaseCheck<Long>
     }
 
     // returns emptyFlag value
-    private boolean buildNetwork(final Set<AtlasObject> explored, final Set<AtlasObject> terminal, final Queue<Edge> candidates, final Edge start)
+    private boolean buildNetwork(final Set<AtlasObject> explored, final Set<AtlasObject> terminal,
+            final Queue<Edge> candidates, final Edge start)
     {
         Edge candidate = start;
         explored.add(start);
@@ -209,7 +212,7 @@ public class SinkIslandCheck extends BaseCheck<Long>
                 {
                     if (!explored.contains(edge))
                     {
-                        if(!this.validEdge(edge))
+                        if (!this.validEdge(edge))
                         {
                             return true;
                         }

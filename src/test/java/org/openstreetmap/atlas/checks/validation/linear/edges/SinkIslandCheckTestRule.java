@@ -11,6 +11,7 @@ import org.openstreetmap.atlas.utilities.testing.TestAtlas.Node;
  * {@link SinkIslandCheck} test data
  *
  * @author gpogulsky
+ * @author nachtm
  */
 public class SinkIslandCheckTestRule extends CoreTestRule
 {
@@ -66,6 +67,37 @@ public class SinkIslandCheckTestRule extends CoreTestRule
                     @Loc(value = TEST_7) }, tags = { "highway=primary", "oneway=yes" }) })
     private Atlas singleEdgeWithAmenityAtlas;
 
+    @TestAtlas(nodes = { @Node(coordinates = @Loc(value = TEST_1)),
+            @Node(coordinates = @Loc(value = TEST_2)),
+            @Node(coordinates = @Loc(value = TEST_3), tags = { "amenity=parking_space" }) },
+
+            edges = {
+                    @Edge(coordinates = { @Loc(value = TEST_1), @Loc(value = TEST_2) }, tags = {
+                            "highway=primary" }),
+                    @Edge(coordinates = { @Loc(value = TEST_2), @Loc(value = TEST_3) }, tags = {
+                            "highway=primary" }) })
+    private Atlas twoEdgesWithAmenityAtlas;
+
+    @TestAtlas(nodes = { @Node(coordinates = @Loc(value = TEST_1)),
+            @Node(coordinates = @Loc(value = TEST_2)), @Node(coordinates = @Loc(value = TEST_3)) },
+
+            edges = {
+                    @Edge(coordinates = { @Loc(value = TEST_1), @Loc(value = TEST_2) }, tags = {
+                            "highway=track" }),
+                    @Edge(coordinates = { @Loc(value = TEST_2), @Loc(value = TEST_3) }, tags = {
+                            "highway=track" }) })
+    private Atlas trackSinkIsland;
+
+    @TestAtlas(nodes = { @Node(coordinates = @Loc(value = TEST_1)),
+            @Node(coordinates = @Loc(value = TEST_2)), @Node(coordinates = @Loc(value = TEST_3)) },
+
+            edges = {
+                    @Edge(coordinates = { @Loc(value = TEST_1), @Loc(value = TEST_2) }, tags = {
+                            "highway=primary" }),
+                    @Edge(coordinates = { @Loc(value = TEST_2), @Loc(value = TEST_3) }, tags = {
+                            "highway=track" }) })
+    private Atlas trackAndHighwaySinkIsland;
+
     public Atlas getSingleEdgeAtlas()
     {
         return this.singleEdgeAtlas;
@@ -79,5 +111,20 @@ public class SinkIslandCheckTestRule extends CoreTestRule
     public Atlas getSingleEdgeWithAmenityAtlas()
     {
         return this.singleEdgeWithAmenityAtlas;
+    }
+
+    public Atlas getTwoEdgesWithAmenityAtlas()
+    {
+        return this.twoEdgesWithAmenityAtlas;
+    }
+
+    public Atlas getTrackSinkIsland()
+    {
+        return this.trackSinkIsland;
+    }
+
+    public Atlas getTrackAndPrimarySinkIsland()
+    {
+        return this.trackAndHighwaySinkIsland;
     }
 }
