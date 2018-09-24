@@ -44,6 +44,8 @@ public class SinkIslandCheck extends BaseCheck<Long>
     private static final List<String> amenityValuesToExclude = Arrays.asList(
             AmenityTag.PARKING.toString(), AmenityTag.PARKING_SPACE.toString(),
             MOTORCYCLE_PARKING_AMENITY, PARKING_ENTRANCE_AMENITY);
+    private static final HighwayTag UNIMPORTANT_HIGHWAY = HighwayTag.NO;
+    private static final HighwayTag MINIMUM_IMPORTANCE_HIGHWAY = HighwayTag.SERVICE;
     private static final long serialVersionUID = -1432150496331502258L;
     private final int storeSize;
     private final int treeSize;
@@ -71,17 +73,20 @@ public class SinkIslandCheck extends BaseCheck<Long>
     @Override
     public boolean validCheckForObject(final AtlasObject object)
     {
-        return this.validEdge(object) && !this.isFlagged(object.getIdentifier());
+        // This is a valid edge
+        return this.validEdge(object)
+                // We haven't flagged it before
+                && !this.isFlagged(object.getIdentifier())
+                // Only look at edges with a highway tag at least as significant as MINIMUM_IMPORTANCE_HIGHWAY
+                // TODO nicer way to do this one
+                && HighwayTag.highwayTag(object).orElse(UNIMPORTANT_HIGHWAY).isMoreImportantThanOrEqualTo(MINIMUM_IMPORTANCE_HIGHWAY);
     }
 
     @Override
     protected Optional<CheckFlag> flag(final AtlasObject object)
     {
-        // Flag to keep track of whether we found an issue or not
-        boolean emptyFlag = false;
-
         // The current edge to be explored
-        Edge candidate = (Edge) object;
+        final Edge candidate = (Edge) object;
 
         // A set of all edges that we have already explored
         final Set<AtlasObject> explored = new HashSet<>(this.storeSize, LOAD_FACTOR);
@@ -93,51 +98,8 @@ public class SinkIslandCheck extends BaseCheck<Long>
         // Start edge always explored
         explored.add(candidate);
 
-        // Keep looping while we still have a valid candidate to explore
-        while (candidate != null)
-        {
-            // If the edge has already been flagged by another process then we can break out of the
-            // loop and assume that whether the check was a flag or not was handled by the other
-            // process
-            if (this.isFlagged(candidate.getIdentifier()))
-            {
-                emptyFlag = true;
-                break;
-            }
-
-            // Retrieve all the valid outgoing edges to explore
-            final Set<Edge> outEdges = candidate.outEdges().stream().filter(this::validEdge)
-                    .collect(Collectors.toSet());
-
-            if (outEdges.isEmpty())
-            {
-                // Sink edge. Don't mark the edge explored until we know how big the tree is
-                terminal.add(candidate);
-            }
-            else
-            {
-                // Add the current candidate to the set of already explored edges
-                explored.add(candidate);
-
-                // From the list of outgoing edges from the current candidate filter out any edges
-                // that have already been explored and add all the rest to the queue of possible
-                // candidates
-                outEdges.stream().filter(outEdge -> !explored.contains(outEdge))
-                        .forEach(candidates::add);
-
-                // If the number of available candidates and the size of the currently explored
-                // items is larger then the configurable tree size, then we can break out of the
-                // loop and assume that this is not a SinkIsland
-                if (candidates.size() + explored.size() > this.treeSize)
-                {
-                    emptyFlag = true;
-                    break;
-                }
-            }
-
-            // Get the next candidate
-            candidate = candidates.poll();
-        }
+        // Flag to keep track of whether we found an issue or not
+        final boolean emptyFlag = buildNetwork(explored, terminal, candidates, candidate);
 
         // If we exit due to tree size (emptyFlag == true) and there are terminal edges we could
         // cache them and check on entry to this method. However it seems to happen too rare in
@@ -209,5 +171,64 @@ public class SinkIslandCheck extends BaseCheck<Long>
         return Validators.isOfType(endNode, AmenityTag.class, AmenityTag.PARKING,
                 AmenityTag.PARKING_SPACE, AmenityTag.MOTORCYCLE_PARKING,
                 AmenityTag.PARKING_ENTRANCE);
+    }
+
+    // returns emptyFlag value
+    private boolean buildNetwork(final Set<AtlasObject> explored, final Set<AtlasObject> terminal, final Queue<Edge> candidates, final Edge start)
+    {
+        Edge candidate = start;
+        explored.add(start);
+        // Keep looping while we still have a valid candidate to explore
+        while (candidate != null)
+        {
+            // If the edge has already been flagged by another process then we can break out of the
+            // loop and assume that whether the check was a flag or not was handled by the other
+            // process
+            if (this.isFlagged(candidate.getIdentifier()))
+            {
+                return true;
+            }
+
+            // Retrieve all the valid outgoing edges to explore
+            final Set<Edge> outEdges = candidate.outEdges();
+
+            if (outEdges.isEmpty())
+            {
+                // Sink edge. Don't mark the edge explored until we know how big the tree is
+                terminal.add(candidate);
+            }
+            else
+            {
+                // Add the current candidate to the set of already explored edges
+                explored.add(candidate);
+
+                // From the list of outgoing edges from the current candidate filter out any edges
+                // that have already been explored and add all the rest to the queue of possible
+                // candidates
+                for (final Edge edge : outEdges)
+                {
+                    if (!explored.contains(edge))
+                    {
+                        if(!this.validEdge(edge))
+                        {
+                            return true;
+                        }
+                        candidates.add(edge);
+                    }
+                }
+
+                // If the number of available candidates and the size of the currently explored
+                // items is larger then the configurable tree size, then we can break out of the
+                // loop and assume that this is not a SinkIsland
+                if (candidates.size() + explored.size() > this.treeSize)
+                {
+                    return true;
+                }
+            }
+
+            // Get the next candidate
+            candidate = candidates.poll();
+        }
+        return false;
     }
 }
