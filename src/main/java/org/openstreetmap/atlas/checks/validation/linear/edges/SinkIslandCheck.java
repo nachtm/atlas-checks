@@ -79,7 +79,6 @@ public class SinkIslandCheck extends BaseCheck<Long>
                 && !this.isFlagged(object.getIdentifier())
                 // Only look at edges with a highway tag at least as significant as
                 // MINIMUM_IMPORTANCE_HIGHWAY
-                // TODO nicer way to do this one
                 && HighwayTag.highwayTag(object).orElse(UNIMPORTANT_HIGHWAY)
                         .isMoreImportantThanOrEqualTo(MINIMUM_IMPORTANCE_HIGHWAY);
     }
