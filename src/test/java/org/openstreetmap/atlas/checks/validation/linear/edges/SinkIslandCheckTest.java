@@ -67,4 +67,21 @@ public class SinkIslandCheckTest
         this.verifier.verifyExpectedSize(1);
         this.verifier.verify(flag -> Assert.assertEquals(2, flag.getFlaggedObjects().size()));
     }
+
+    @Test
+    public void testServiceSinkIsland()
+    {
+        this.verifier.actual(this.setup.getServiceSinkIsland(), new SinkIslandCheck(
+                ConfigurationResolver.inlineConfiguration("{\"SinkIslandCheck.tree.size\":3}")));
+        this.verifier.verifyExpectedSize(1);
+    }
+
+    @Test
+    public void testInvalidEdges()
+    {
+        this.verifier.actual(this.setup.getInvalidEdges(), new SinkIslandCheck(
+                ConfigurationResolver.emptyConfiguration()));
+        this.verifier.verifyExpectedSize(1);
+        this.verifier.verify(flag -> Assert.assertEquals(2, flag.getFlaggedObjects().size()));
+    }
 }

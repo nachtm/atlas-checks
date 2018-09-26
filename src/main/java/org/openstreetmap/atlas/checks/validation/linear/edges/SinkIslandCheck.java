@@ -89,38 +89,15 @@ public class SinkIslandCheck extends BaseCheck<Long>
         // The current edge to be explored
         final Edge candidate = (Edge) object;
 
-        // A set of all edges that we have already explored
-        final Set<AtlasObject> explored = new HashSet<>(this.storeSize, LOAD_FACTOR);
-        // A set of all edges that we explore that have no outgoing edges
-        final Set<AtlasObject> terminal = new HashSet<>();
-        // Current queue of candidates that we can draw from
-        final Queue<Edge> candidates = new ArrayDeque<>(this.storeSize);
-
-        // Start edge always explored
-        explored.add(candidate);
-
-        // Flag to keep track of whether we found an issue or not
-        final boolean emptyFlag = buildNetwork(explored, terminal, candidates, candidate);
-
-        // If we exit due to tree size (emptyFlag == true) and there are terminal edges we could
-        // cache them and check on entry to this method. However it seems to happen too rare in
-        // practice. So these edges (if any) will be processed as all others. Even though they would
-        // not generate any candidates. Otherwise if we covered the whole tree, there is no need to
-        // delay processing of terminal edges. We should add them to the geometry we are going to
-        // flag.
-        if (!emptyFlag)
-        {
-            // Include all touched edges
-            explored.addAll(terminal);
-        }
+        // Analyze candidate's neighbors to determine whether it is part of a sink node
+        final Optional<Set<AtlasObject>> explored = buildNetwork(candidate);
 
         // Set every explored edge as flagged for any other processes to know that we have already
         // process all those edges
-        explored.forEach(marked -> this.markAsFlagged(marked.getIdentifier()));
+        explored.ifPresent(objs -> objs.forEach(marked -> this.markAsFlagged(marked.getIdentifier())));
 
-        // Create the flag if and only if the empty flag value is not set to false
-        return emptyFlag ? Optional.empty()
-                : Optional.of(createFlag(explored, this.getLocalizedInstruction(0)));
+        // If we found any sink islands, flag them here.
+        return explored.map(toTag -> createFlag(toTag, this.getLocalizedInstruction(0)));
     }
 
     @Override
@@ -143,16 +120,28 @@ public class SinkIslandCheck extends BaseCheck<Long>
                 // Ignore any airport taxiways and runways, as these often create a sink island
                 && !Validators.isOfType(object, AerowayTag.class, AerowayTag.TAXIWAY,
                         AerowayTag.RUNWAY)
-                // Ignore edges that have an amenity tag equal to one of the amenityValuesToExclude
-                && !endNodeHasAmenityTypeToExclude(object)
-                // Ignore edges that have been way sectioned at the border, as has high probability
-                // of creating a false positive due to the sectioning of the way
-                && !(SyntheticBoundaryNodeTag.isBoundaryNode(((Edge) object).end())
-                        || SyntheticBoundaryNodeTag.isBoundaryNode(((Edge) object).start()))
                 // Only allow car navigable highways and ignore ferries
                 && HighwayTag.isCarNavigableHighway(object) && !RouteTag.isFerry(object)
                 // Ignore any highways tagged as areas
                 && !TagPredicates.IS_AREA.test(object);
+    }
+
+    /**
+     * This function will check edges and will determine whether they are outside the scope of this
+     * check or not. Currently, edges which contain nodes with a synthetic boundary node or edges
+     * that contain end nodes with certain parking tags are disqualified from this check.
+     *
+     * @param edge The edge we want to look at
+     * @return {@code true} if we should stop examining this component of the network because it
+     *         contains this node. {@code false} if we should continue looking at this component.
+     */
+    private boolean outsideOfScope(final Edge edge)
+    {
+        // If we've way-sectioned at the border, don't consider this component of the network
+        return SyntheticBoundaryNodeTag.isBoundaryNode(edge.end())
+                || SyntheticBoundaryNodeTag.isBoundaryNode(edge.start())
+                // Don't consider components that end in nodes with certain amenity tags
+                || endNodeHasAmenityTypeToExclude(edge);
     }
 
     /**
@@ -174,12 +163,26 @@ public class SinkIslandCheck extends BaseCheck<Long>
                 AmenityTag.PARKING_ENTRANCE);
     }
 
-    // returns emptyFlag value
-    private boolean buildNetwork(final Set<AtlasObject> explored, final Set<AtlasObject> terminal,
-            final Queue<Edge> candidates, final Edge start)
+    /**
+     * Analyze the edge network starting at start, and return the sink island, if one exists. If we
+     * find any nodes that have already been flagged, then we quit immediately, assuming that the
+     * other process correctly labeled this connected component. Similarly, if we find any edges
+     * deemed to be outside the scope of this check, or the network grows past the maximum tree
+     * size, quit immediately.
+     * @param start - the initial edge in the potential sink island.
+     * @return an Optional<Set<AtlasObject>> containing a sink island, if one exists.
+     * Otherwise, Optional.empty().
+     */
+    private Optional<Set<AtlasObject>> buildNetwork(final Edge start)
     {
+        final Set<AtlasObject> explored = new HashSet<>(this.storeSize, LOAD_FACTOR);
+        final Set<AtlasObject> terminal = new HashSet<>();
+        final Queue<Edge> candidates = new ArrayDeque<>();
         Edge candidate = start;
-        explored.add(start);
+
+        // Start edge always explored
+        explored.add(candidate);
+
         // Keep looping while we still have a valid candidate to explore
         while (candidate != null)
         {
@@ -188,7 +191,7 @@ public class SinkIslandCheck extends BaseCheck<Long>
             // process
             if (this.isFlagged(candidate.getIdentifier()))
             {
-                return true;
+                return Optional.empty();
             }
 
             // Retrieve all the valid outgoing edges to explore
@@ -209,11 +212,12 @@ public class SinkIslandCheck extends BaseCheck<Long>
                 // candidates
                 for (final Edge edge : outEdges)
                 {
-                    if (!explored.contains(edge))
+                    if (this.validEdge(edge) && !explored.contains(edge))
                     {
-                        if (!this.validEdge(edge))
+                        // Don't tag this network if we run into an edge outside the scope of this check.
+                        if (this.outsideOfScope(edge))
                         {
-                            return true;
+                            return Optional.empty();
                         }
                         candidates.add(edge);
                     }
@@ -224,13 +228,23 @@ public class SinkIslandCheck extends BaseCheck<Long>
                 // loop and assume that this is not a SinkIsland
                 if (candidates.size() + explored.size() > this.treeSize)
                 {
-                    return true;
+                    return Optional.empty();
                 }
             }
 
             // Get the next candidate
             candidate = candidates.poll();
         }
-        return false;
+
+        // If we exit due to tree size (emptyFlag == true) and there are terminal edges we could
+        // cache them and check on entry to this method. However it seems to happen too rare in
+        // practice. So these edges (if any) will be processed as all others. Even though they would
+        // not generate any candidates. Otherwise if we covered the whole tree, there is no need to
+        // delay processing of terminal edges. We should add them to the geometry we are going to
+        // flag.
+        // Include all touched edges
+        explored.addAll(terminal);
+
+        return Optional.of(explored);
     }
 }
